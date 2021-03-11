@@ -81,6 +81,8 @@ struct flb_elasticsearch {
     int logstash_format;
     int generate_id;
     int current_time_index;
+    /* id_format */
+    char *id_format;
 
     /* prefix */
     flb_sds_t logstash_prefix;

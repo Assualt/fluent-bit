@@ -259,6 +259,14 @@ struct flb_elasticsearch *flb_es_conf_create(struct flb_output_instance *ins,
             return NULL;
         }
     }
+    /* get es conf id_format */
+    tmp = flb_output_get_property("id_format", ins);
+    if (!tmp) {
+        flb_plg_debug(ctx->ins, "current id_format is not set. use hash instead");
+    }else{
+        ctx->id_format = tmp;
+        flb_plg_debug(ctx->ins, "current id format is %s", tmp);
+    }
 
 #ifdef FLB_HAVE_AWS
     /* AWS Auth */

@@ -293,17 +293,76 @@ static int elasticsearch_format(struct flb_config *config,
         strftime(index_formatted, sizeof(index_formatted) - 1,
                  ctx->index, &tm);
         es_index = index_formatted;
-        if (ctx->suppress_type_name) {
-            index_len = snprintf(j_index,
-                                 ES_BULK_HEADER,
-                                 ES_BULK_INDEX_FMT_WITHOUT_TYPE,
-                                 es_index);
-        }
-        else {
-            index_len = snprintf(j_index,
-                                 ES_BULK_HEADER,
-                                 ES_BULK_INDEX_FMT,
-                                 es_index, ctx->type);
+        if(ctx->id_format == NULL) {
+            if (ctx->suppress_type_name) {
+                index_len = snprintf(j_index,
+                                    ES_BULK_HEADER,
+                                    ES_BULK_INDEX_FMT_WITHOUT_TYPE,
+                                    es_index);
+            }
+            else {
+                index_len = snprintf(j_index,
+                                    ES_BULK_HEADER,
+                                    ES_BULK_INDEX_FMT,
+                                    es_index, ctx->type);
+            }
+        } else {
+            flb_plg_debug(ctx->ins, "using id format from configure.. %s", ctx->id_format);
+            char * p_id_format = (char *)malloc(300);
+            memset(p_id_format, 0, sizeof(p_id_format));
+            const char *p  = ctx->id_format, *q = ctx->id_format;
+            const char *p_id_formatPtr = p_id_format;
+            const char *old_p = p;
+            char key[30];
+            while(1){
+                old_p = p;
+                p = strstr(p, "$[");
+                if(p == NULL) {
+                    if(old_p != NULL) {
+                        strcat(p_id_format, old_p);
+                    }
+                    break;
+                }
+                if(old_p != NULL) {
+                    strncat(p_id_format, old_p, p-old_p);
+                }
+                q = strstr(p, "]");
+                if(p!= NULL && q!= NULL) {
+                    memset(key, 0, 30);
+                    strncpy(key, p+2, q-p-2);
+                    key[q-p-2] = '\0';
+                    flb_plg_debug(ctx->ins, "current key is %s ", key);
+                    p = ++q;
+                    msgpack_object_kv *pKv = map.via.map.ptr;
+                    while(pKv++->key.type != MSGPACK_OBJECT_NIL) {
+                        // printf("current key type:%d ==> val type %d \n", pKv->key.type, pKv->val.type );
+                        if(pKv->key.type == MSGPACK_OBJECT_STR && pKv->val.type == MSGPACK_OBJECT_STR) {
+                            if(strncasecmp(pKv->key.via.str.ptr, key, pKv->key.via.str.size) == 0 ){ // Found value
+                                strncat(p_id_format, pKv->val.via.str.ptr, pKv->val.via.str.size);
+                                printf("current id_format size:%d\n", pKv->val.via.str.size);
+                            }
+                        }
+                    }
+                }else{
+                    break;
+                }
+            }
+            p_id_format[strlen(p_id_format)] = '\0';
+            
+            if(ctx->suppress_type_name){
+                index_len = snprintf(j_index, 
+                                    ES_BULK_CHUNK,
+                                    ES_BULK_INDEX_FMT_ID_WITHOUT_TYPE,
+                                    es_index, p_id_format
+                                    );
+            } else {
+                index_len = snprintf(j_index,
+                                    ES_BULK_HEADER,
+                                    ES_BULK_INDEX_FMT_ID,
+                                    es_index, ctx->type, p_id_format
+                                    );
+            }
+            free(p_id_format);
         }
     }
 
@@ -946,7 +1005,13 @@ static struct flb_config_map config_map[] = {
      "When enabled, replace field name dots with underscore, required by Elasticsearch "
      "2.0-2.3."
     },
-
+    {
+     FLB_CONFIG_MAP_STR, "id_format", NULL, 
+     0, FLB_FALSE, offsetof(struct flb_elasticsearch, id_format),
+     "When enabled, the es [_id] would may format like this. This may dupliacte " 
+     "records when retrying ES. format it carefully and current support the the "
+     "first layer"
+    },
     {
      FLB_CONFIG_MAP_BOOL, "current_time_index", "false",
      0, FLB_TRUE, offsetof(struct flb_elasticsearch, current_time_index),
